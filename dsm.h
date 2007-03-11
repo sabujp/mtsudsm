@@ -1,6 +1,6 @@
 /* Authors: Purvi Patel (pp2j)
- * 			Sabuj Pattanayek (sp2m)
- * 			Shashi Singh Thakur (sst2m)
+ *          Sabuj Pattanayek (sp2m)
+ *          Shashi Singh Thakur (sst2m)
  * Purpose: Distributed Shared Memory malloc using MPI, see http://code.google.com/p/mtsudsm/
  * for details.
  * Professor: Dr. R. Butler
