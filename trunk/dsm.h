@@ -16,6 +16,10 @@
 
 __BEGIN_DECLS
 
+#ifndef MAXDSMMALLOCS
+#define MAXDSMMALLOCS 100
+#endif
+
 /*int dsm_init(int *argc, char **argv);
  *sp2m 03/10/07 : see p1.txt, we can pass MPI_Init(null,null)
  */
@@ -37,6 +41,7 @@ int dsm_mutex_lock(int);
  * same here!
  */
 int dsm_mutex_unlock(int);
+
 __END_DECLS   
 
 #endif
