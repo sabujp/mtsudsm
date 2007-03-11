@@ -1,6 +1,6 @@
 /* Authors: Purvi Patel (pp2j)
- * 			Sabuj Pattanayek (sp2m)
- * 			Shashi Singh Thakur (sst2m)
+ *          Sabuj Pattanayek (sp2m)
+ *          Shashi Singh Thakur (sst2m)
  * Purpose: Distributed Shared Memory malloc using MPI, see http://code.google.com/p/mtsudsm/
  * for details.
  * Professor: Dr. R. Butler
@@ -38,7 +38,7 @@ int dsm_init(int *argc, ***argv)
 int dsm_rank(void)
 {
 	int rc, rank;
-    if ((rc = MPI_Comm_rank(MPI_COMM_WORLD, &rank)) != MPI_SUCCESS) {
+	if ((rc = MPI_Comm_rank(MPI_COMM_WORLD, &rank)) != MPI_SUCCESS) {
 		return -1;
 	}
 	else {
