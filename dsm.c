@@ -12,7 +12,7 @@
 #include "dsm.h"
 #include <signal.h>
 #include <sys/mman.h>
-#include <unistd>
+#include <unistd.h>
 
 void *mmptr[MAXDSMMALLOCS];
 /* copy on read/write pointer, value == 1 read access, value == 2 write access */
@@ -28,7 +28,7 @@ static void segv_handler(int signum, siginfo_t *si,void *ctx)
 
 	/* Determine the mmptr that needs read/write access and also set it's corwptr to 1 or 2 */
 	for (i = 0; i < nextPtr; i++) {
-		if ((si->si_addr >= mmptr[i][0]) && (si->si_addr < mmptr[i][pgsz])) {
+		if ((si->si_addr >= mmptr[i]) && (si->si_addr < (mmptr+pgsz)[i])) {
 			/* Check to see if it already has read access, then it must want write access */
 			if (corwptr[i] == 1) {
 				if (mprotect(mmptr[i], pgsz, PROT_READ|PROT_WRITE) < 0) {
@@ -141,7 +141,7 @@ int dsm_barrier(void)
 /* sp2m */
 int dsm_sync(void)
 {
-	int i, rc;
+	int i, rc = -1;
 
 	for (i = 0; i < nextPtr; i++) {
 		/* only synchronize mmptr's that have been written to */
@@ -165,24 +165,30 @@ int dsm_sync(void)
 /* sst2m */
 int dsm_finalize(void)
 {
-	return MPI_Finalize(void);
+	return MPI_Finalize();
 }
 /* end sst2m */
 
 /* sst2m */
-int dsm_mutex_lock(pthread_mutex_t *mutex)
+int dsm_mutex_lock(int mutex)
 {
-	int rc ;
+	/*
+	int rc;
     rc = pthread_mutex_lock(pthread_mutex_t mutex);
     return rc;
+	*/
+	return 0;
 }          
 /* end sst2m */
 
 /* sst2m */
-int dsm_mutex_unlock()
+int dsm_mutex_unlock(int mutex)
 {
+	/*
 	int rc ;
     rc = pthread_mutex_unlock(pthread_mutex_t mutex);
     return rc;
+	*/
+	return 0;
 }
 /* end sst2m */
