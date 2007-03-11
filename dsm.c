@@ -7,18 +7,13 @@
  * Course: CSCI6450, MTSU, S07
  */
 
-#include <stdio.h>
-#include <stdlib.h>
 #include "dsm.h"
-#include <signal.h>
-#include <sys/mman.h>
-#include <unistd.h>
 
 void *mmptr[MAXDSMMALLOCS];
 /* copy on read/write pointer, value == 1 read access, value == 2 write access */
 int corwptr[MAXDSMMALLOCS];
-int pgsz;
-int nextPtr = 0;
+int myRank, pgsz, nextPtr = 0;
+pthread_t rootThread;
 
 /* sp2m */
 static void segv_handler(int signum, siginfo_t *si,void *ctx)
@@ -56,14 +51,47 @@ static void segv_handler(int signum, siginfo_t *si,void *ctx)
 }
 /* end sp2m */
 
+/* sp2m */
+void * handleWorkerRequests(void * unused) {
+	int val, keepWorking = 1;
+	MPI_Status status, unusedStatus;
+
+	while(keepWorking) {
+		printf("Launching recv in thread\n");
+		MPI_Recv((void *) &val, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+		/* Send the requesting source the page it wants */
+		if (status.MPI_TAG == 0) {
+			MPI_Send(mmptr[val], pgsz, MPI_BYTE, status.MPI_SOURCE, 2, MPI_COMM_WORLD);
+		}
+		/* Receive a page due to dsm_sync from a worker */
+		else if (status.MPI_TAG == 1) {
+			MPI_Recv(mmptr[val], pgsz, MPI_BYTE, status.MPI_SOURCE, 2, MPI_COMM_WORLD, &unusedStatus);
+		}
+		/* This thread can stop working */
+		else if (status.MPI_TAG == 3) {
+			keepWorking = 0;
+		}
+		else {
+			printf("Unknown MPI_TAG = %d\n received, quitting!\n", status.MPI_TAG);
+			exit(-1);
+		}
+	}
+	return unused;
+}
+/* end sp2m */
+
 /* sst2m */
 /* modified by sp2m */
 int dsm_init(void)
 {
-	int rc;
+	int rc, threadLevel;
 	struct sigaction sa;
 
-    rc = MPI_Init(NULL, NULL);
+    rc = MPI_Init_thread(NULL, NULL, MPI_THREAD_MULTIPLE, &threadLevel);
+	if (threadLevel != MPI_THREAD_MULTIPLE) {
+		printf("This program will not work without MPI_THREAD_MULTIPLE thread level support, quitting!\n");
+		exit(rc);
+	}
 	/* get the page size */
 	pgsz = getpagesize();
 	/* setup the SIGSEGV handler */
@@ -73,6 +101,10 @@ int dsm_init(void)
     sigaction(SIGSEGV, &sa, NULL);
 
 	/* setup a thread for handling sends and receives only in rank 0 */
+	myRank = dsm_rank();
+	if (myRank == 0) {
+		pthread_create(&rootThread, NULL, handleWorkerRequests, (void *) NULL);
+	}
 
     return rc;
 }
@@ -95,9 +127,7 @@ int dsm_rank(void)
 /* sp2m */
 void * dsm_malloc(void)
 {
-	int myRank;
-	
-	if ((myRank = dsm_rank()) != -1) {
+	if (myRank != -1) {
 		/* Rank 0 has immediate read/write access */
 		if (myRank == 0) {
 		    mmptr[nextPtr] = mmap(0, pgsz, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
@@ -120,13 +150,31 @@ void * dsm_malloc(void)
 		dsm_barrier();
 		return MAP_FAILED;
 	}
-	
-	/* page does not have read or write access */
-	corwptr[nextPtr] = 0;
+
+	/* If nothing failed rank 0 gets read+write, all other ranks get PROT_NONE */
+	if (myRank == 0) {
+		corwptr[nextPtr] = 2;
+	}
+	else {
+		corwptr[nextPtr] = 0;
+	}
 	/* increment the mmap ptr */
 	nextPtr++;
 	dsm_barrier();
-    return mmptr[nextPtr];
+    return mmptr[nextPtr-1];
+}
+/* end sp2m */
+
+/* sp2m */
+int dsm_nprocs(void) {
+	int rc, numRanks;
+
+	if ((rc = MPI_Comm_size(MPI_COMM_WORLD, &numRanks)) == MPI_SUCCESS) {
+		return numRanks;
+	}
+	else {
+		return rc;
+	}
 }
 /* end sp2m */
 
@@ -163,8 +211,16 @@ int dsm_sync(void)
 /* end sp2m */
 
 /* sst2m */
+/* modified by sp2m */
 int dsm_finalize(void)
 {
+	/* send a message to rank 0 to terminate the request handling thread */
+	if (myRank == 0) {
+		int i = 1;
+		/* value = 1, tag = 3 */
+		MPI_Send((void *) &i, 1, MPI_INT, 0, 3, MPI_COMM_WORLD);
+		pthread_join(rootThread, NULL);
+	}
 	return MPI_Finalize();
 }
 /* end sst2m */
