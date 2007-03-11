@@ -13,6 +13,10 @@
 #include <stdio.h>
 #include <pthread.h>
 #include <mpi.h>
+#include <stdlib.h>
+#include <signal.h>
+#include <sys/mman.h>
+#include <unistd.h>
 
 __BEGIN_DECLS
 
@@ -28,7 +32,7 @@ int dsm_init(void);
  *sp2m 03/10/07 : once again see p1.txt, we will only use MPI_COMM_WORLD
  */
 int dsm_rank(void);
-/*int dsm_nprocs(void);*/
+int dsm_nprocs(void);
 void * dsm_malloc(void);
 int dsm_barrier(void);
 int dsm_sync(void);
