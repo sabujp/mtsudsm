@@ -12,7 +12,8 @@
 void *mmptr[MAXDSMMALLOCS];
 /* copy on read/write pointer, value == 1 read access, value == 2 write access */
 int corwptr[MAXDSMMALLOCS];
-int myRank, pgsz, nextPtr = 0;
+int myRank, nextPtr = 0;
+size_t pgsz;
 pthread_t rootThread;
 
 /* sp2m */
@@ -23,7 +24,8 @@ static void segv_handler(int signum, siginfo_t *si,void *ctx)
 
 	/* Determine the mmptr that needs read/write access and also set it's corwptr to 1 or 2 */
 	for (i = 0; i < nextPtr; i++) {
-		if ((si->si_addr >= mmptr[i]) && (si->si_addr < (mmptr+pgsz)[i])) {
+		if ((si->si_addr >= mmptr[i]) && (si->si_addr < (mmptr[i]+pgsz))) {
+			printf("rank = %d SIGSEGV @ %p between %p and %p?\n", myRank, si->si_addr, mmptr[i], mmptr[i]+pgsz);
 			/* Check to see if it already has read access, then it must want write access */
 			if (corwptr[i] == 1) {
 				if (mprotect(mmptr[i], pgsz, PROT_READ|PROT_WRITE) < 0) {
@@ -31,18 +33,26 @@ static void segv_handler(int signum, siginfo_t *si,void *ctx)
 					exit(-1);
 				}
 				corwptr[i] = 2;
+				printf("rank = %d got PROT_READ|PROT_WRITE on page = %d\n", myRank, i);
 			}
 			else {
-				/* else give it read access only */
-				if (mprotect(mmptr[i], pgsz, PROT_READ) < 0) {
-	    			perror("segv_handler, mprotect READ");
+				/* else give it read/write for the receive */
+				if (mprotect(mmptr[i], pgsz, PROT_READ|PROT_WRITE) < 0) {
+	    			perror("segv_handler, mprotect READ & WRITE before receive from parent");
 					exit(-1);
 				}
 				/* tell rank 0 to send the contents of the page pointed to by the ith mmptr */
 				/* request for page, tag = 0, message = # of page */
+				printf("rank = %d requesting page = %d\n", myRank, i);
 				MPI_Send((void *) &i, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
 				/* get the page, tag = 2, message = the page */
 				MPI_Recv(mmptr[i], pgsz, MPI_BYTE, 0, 2, MPI_COMM_WORLD, &unused); 
+				printf("rank = %d received page = %d\n", myRank, i);
+				/* give it read access only */
+				if (mprotect(mmptr[i], pgsz, PROT_READ) < 0) {
+	    			perror("segv_handler, mprotect READ");
+					exit(-1);
+				}
 				corwptr[i] = 1;
 			}
 			break;
@@ -57,14 +67,16 @@ void * handleWorkerRequests(void * unused) {
 	MPI_Status status, unusedStatus;
 
 	while(keepWorking) {
-		printf("Launching recv in thread\n");
 		MPI_Recv((void *) &val, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 		/* Send the requesting source the page it wants */
+		printf("Received MPI_TAG = %d\n", status.MPI_TAG);
 		if (status.MPI_TAG == 0) {
+			printf("parent sending page = %d to rank = %d\n", val, status.MPI_SOURCE);
 			MPI_Send(mmptr[val], pgsz, MPI_BYTE, status.MPI_SOURCE, 2, MPI_COMM_WORLD);
 		}
 		/* Receive a page due to dsm_sync from a worker */
 		else if (status.MPI_TAG == 1) {
+			printf("parent receiving page = %d from rank = %d\n", val, status.MPI_SOURCE);
 			MPI_Recv(mmptr[val], pgsz, MPI_BYTE, status.MPI_SOURCE, 2, MPI_COMM_WORLD, &unusedStatus);
 		}
 		/* This thread can stop working */
@@ -153,9 +165,11 @@ void * dsm_malloc(void)
 
 	/* If nothing failed rank 0 gets read+write, all other ranks get PROT_NONE */
 	if (myRank == 0) {
+		printf("rank = %d mmap PROT_READ|PROT_WRITE mmptr[%d]\n", myRank, nextPtr);
 		corwptr[nextPtr] = 2;
 	}
 	else {
+		printf("rank = %d mmap PROT_NONE mmptr[%d]\n", myRank, nextPtr);
 		corwptr[nextPtr] = 0;
 	}
 	/* increment the mmap ptr */
@@ -182,6 +196,7 @@ int dsm_nprocs(void) {
 /* modified by sp2m */
 int dsm_barrier(void)
 {
+	printf("rank = %d calling barrier\n", myRank);
     return MPI_Barrier(MPI_COMM_WORLD);
 }
 /* end sst2m */
@@ -192,18 +207,25 @@ int dsm_sync(void)
 	int i, rc = -1;
 
 	for (i = 0; i < nextPtr; i++) {
-		/* only synchronize mmptr's that have been written to */
+		/* only synchronize mmptr's that have been written to and only if i'm not the parent rank */
 		if (corwptr[i] == 2) {
-			/* set these pages to PROT_NONE */
-			if (mprotect(mmptr[i], pgsz, PROT_NONE) < 0) {
-			    perror("dsm_sync, mprotect NONE");
-				return -1;
+			if (myRank == 0) {
+				printf("rank = %d calling sync on page = %d\n", myRank, i);
+				rc = MPI_SUCCESS;
 			}
-			/* tell rank 0 to prepare to receive the contents of the page pointed to by the ith mmptr */
-			/* request to send a page, tag = 1, message = # of page */
-			MPI_Send((void *) &i, 1, MPI_INT, 0, 1, MPI_COMM_WORLD);
-			/* send the page */
-			rc = MPI_Send(mmptr[i], pgsz, MPI_BYTE, 0, 2, MPI_COMM_WORLD);
+			else {
+				/* tell rank 0 to prepare to receive the contents of the page pointed to by the ith mmptr */
+				/* request to send a page, tag = 1, message = # of page */
+				rc = MPI_Send((void *) &i, 1, MPI_INT, 0, 1, MPI_COMM_WORLD);
+				/* send the page */
+				rc = MPI_Send(mmptr[i], pgsz, MPI_BYTE, 0, 2, MPI_COMM_WORLD);
+				/* set these pages to PROT_NONE */
+				if (mprotect(mmptr[i], pgsz, PROT_NONE) < 0) {
+				    perror("dsm_sync, mprotect NONE");
+					return -1;
+				}
+				printf("rank = %d called sync and sent page = %d\n", myRank, i);
+			}
 		}
 	}
 	return rc;
