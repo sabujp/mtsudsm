@@ -8,6 +8,6 @@ libdsm.o: dsm.c
 libdsm.a: libdsm.o
 	ar rcs libdsm.a $<
 test1: test1.c
-	gcc -ggdb -Wall -static $< ${LDFLAGS} ${LIBS} -o test1
+	gcc -ggdb -Wall -static $< ${INCLUDE} ${LDFLAGS} ${LIBS} -o test1
 clean:
 	rm -f *.o *.a test1
