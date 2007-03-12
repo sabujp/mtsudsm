@@ -1,12 +1,5 @@
-DNSDOMAINNAME=`dnsdomainname`
-ifeq (${DNSDOMAINNAME}, 'cs.mtsu.edu')
-	PREFIX=/home/rbutler/public/courses/osd/mpich2i
-else
-	PREFIX=/home/sabuj/mpich2i
-endif
-
-INCLUDE=-I${PREFIX}/include
-LDFLAGS=-L${PREFIX}/lib -L.
+INCLUDE=-I/home/sabuj/mpich2i/include
+LDFLAGS=-L/home/sabuj/mpich2i/lib -L.
 LIBS=-ldsm -lmpich -pthread
 
 all: libdsm.o libdsm.a
