@@ -71,13 +71,16 @@ void * handleWorkerRequests(void * unused) {
 		/* Send the requesting source the page it wants */
 		printf("Received MPI_TAG = %d\n", status.MPI_TAG);
 		if (status.MPI_TAG == 0) {
-			printf("parent sending page = %d to rank = %d\n", val, status.MPI_SOURCE);
 			MPI_Send(mmptr[val], pgsz, MPI_BYTE, status.MPI_SOURCE, 2, MPI_COMM_WORLD);
+			printf("parent sent page = %d to rank = %d\n", val, status.MPI_SOURCE);
 		}
 		/* Receive a page due to dsm_sync from a worker */
 		else if (status.MPI_TAG == 1) {
-			printf("parent receiving page = %d from rank = %d\n", val, status.MPI_SOURCE);
 			MPI_Recv(mmptr[val], pgsz, MPI_BYTE, status.MPI_SOURCE, 2, MPI_COMM_WORLD, &unusedStatus);
+			/* send some sort of acknowledgement, tag = 4 */
+			MPI_Send((void *) &val, 1, MPI_INT, status.MPI_SOURCE, 4, MPI_COMM_WORLD);
+			printf("parent received page = %d from rank = %d\n", val, status.MPI_SOURCE);
+
 		}
 		/* This thread can stop working */
 		else if (status.MPI_TAG == 3) {
@@ -204,16 +207,13 @@ int dsm_barrier(void)
 /* sp2m */
 int dsm_sync(void)
 {
-	int i, rc = -1;
-
-	for (i = 0; i < nextPtr; i++) {
-		/* only synchronize mmptr's that have been written to and only if i'm not the parent rank */
-		if (corwptr[i] == 2) {
-			if (myRank == 0) {
-				printf("rank = %d calling sync on page = %d\n", myRank, i);
-				rc = MPI_SUCCESS;
-			}
-			else {
+	int i, unused, rc = -1;
+	MPI_Status unusedStatus;
+	
+	/* only synchronize mmptr's that have been written to and only if i'm not the parent rank */
+	if (myRank != 0) {
+		for (i = 0; i < nextPtr; i++) {
+			if (corwptr[i] == 2) {
 				/* tell rank 0 to prepare to receive the contents of the page pointed to by the ith mmptr */
 				/* request to send a page, tag = 1, message = # of page */
 				rc = MPI_Send((void *) &i, 1, MPI_INT, 0, 1, MPI_COMM_WORLD);
@@ -224,10 +224,16 @@ int dsm_sync(void)
 				    perror("dsm_sync, mprotect NONE");
 					return -1;
 				}
+				/* Receive an ack from the parent handler thread that it has received the page */
+				/* This is necessary because in example program 1 the handler thread will receive the last page
+				 * after the end of the printf's!
+				 */
+				rc = MPI_Recv((void *) &unused, 1, MPI_INT, 0, 4, MPI_COMM_WORLD, &unusedStatus); 
 				printf("rank = %d called sync and sent page = %d\n", myRank, i);
 			}
 		}
 	}
+
 	return rc;
 }
 /* end sp2m */
