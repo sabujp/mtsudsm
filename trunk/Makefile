@@ -4,10 +4,10 @@ LIBS=-ldsm -lmpich -pthread
 
 all: libdsm.o libdsm.a
 libdsm.o: dsm.c
-	gcc -ggdb -Wall -fPIC -c $< ${INCLUDE} -o libdsm.o
+	gcc -Wall -fPIC -c $< ${INCLUDE} -o libdsm.o
 libdsm.a: libdsm.o
 	ar rcs libdsm.a $<
 test1: test1.c
-	gcc -ggdb -Wall -static $< ${INCLUDE} ${LDFLAGS} ${LIBS} -o test1
+	gcc -Wall $< ${INCLUDE} ${LDFLAGS} ${LIBS} -o test1
 clean:
 	rm -f *.o *.a test1
