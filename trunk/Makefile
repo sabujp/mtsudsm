@@ -1,5 +1,8 @@
-INCLUDE=-I/home/sabuj/mpich2i/include
-LDFLAGS=-L/home/sabuj/mpich2i/lib -L.
+#PREFIX=/home/sabuj/mpich2i
+PREFIX=/home/rbutler/public/courses/osd/mpich2i
+
+INCLUDE=-I${PREFIX}/include
+LDFLAGS=-L${PREFIX}/lib -L.
 LIBS=-ldsm -lmpich -pthread
 
 all: libdsm.o libdsm.a
